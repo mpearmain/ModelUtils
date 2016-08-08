@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-
-from __future__ import division
 import numpy as np
 import pandas as pd
 
@@ -9,7 +7,6 @@ class BinaryStackingClassifier():
     """
     To facilitate stacking of binary classifiers
     It only provides fit and predict_proba functions, and works with binary [0, 1] labels.
-
     :param base_classifiers: A list of binary classifiers with a fit and predict_proba method similar to that of sklearn
     :param xfolds: A cross folds pandas data frame indicating the identifier for fold selection (col1) and the fold
                    number (col2)
@@ -20,14 +17,11 @@ class BinaryStackingClassifier():
                    6,   3
                    8,   1
                    In this class the names do not matter it is positional.
-
                    ##############################
-                   Fold number must start from 1.
+                   Fold number must start from 0. as per Kfold or LabelKfold in scikit-learn.
                    ##############################
-
     :param evaluation: optional evaluation metric (y_true, y_score) to check metric at each fold.
                     expected use case might be evaluation=sklearn.Metrics.logLoss
-
     """
     def __init__(self, base_classifiers, xfolds, evaluation=None):
         self.base_classifiers = base_classifiers
@@ -43,7 +37,6 @@ class BinaryStackingClassifier():
 
     def fit(self, X, y, **kwargs):
         """ A generic fit method for meta stacking.
-
         :param X: A train dataset
         :param y: A train labels
         :param kwargs: Any optional params to give the fit method, i.e in xgboost we may use eval_metirc='auc'
@@ -54,7 +47,7 @@ class BinaryStackingClassifier():
 
         for model_no in range(len(self.base_classifiers)):
             print "Running Model ", model_no+1, "of", len(self.base_classifiers)
-            for j in range(1, len(n_folds)+1):
+            for j in range(0, len(n_folds)):
                 idx0 = self.xfolds[self.xfolds.ix[:,1] != j].index
                 idx1 = self.xfolds[self.xfolds.ix[:,1] == j].index
                 x0 = X[X.index.isin(idx0)]
@@ -69,16 +62,27 @@ class BinaryStackingClassifier():
             # Finally fit against all the data
             self.base_classifiers[model_no].fit(X, y, **kwargs)
 
+    def predict(self, X):
+        """
+        :param X: The data to apply the fitted model from fit
+        :return: The predict of the different classifiers - so other methods can be used i.e regressors or clusters
+        """
+        stacking_predict_data = pd.DataFrame(np.nan, index=X.index, columns=self.colnames)
+
+        for model_no in range(len(self.base_classifiers)):
+            stacking_predict_data.ix[:, model_no] = self.base_classifiers[model_no].predict(X)
+        return stacking_predict_data
+
     def predict_proba(self, X):
         """
         :param X: The data to apply the fitted model from fit
         :return: The predicted_proba of the different classifiers
         """
-        stacking_predict_data = pd.DataFrame(np.nan, index=X.index, columns=self.colnames)
+        stacking_predict_proba_data = pd.DataFrame(np.nan, index=X.index, columns=self.colnames)
 
         for model_no in range(len(self.base_classifiers)):
-            stacking_predict_data.ix[:, model_no] = self.base_classifiers[model_no].predict_proba(X)[:, 1]
-        return stacking_predict_data
+            stacking_predict_proba_data.ix[:, model_no] = self.base_classifiers[model_no].predict_proba(X)[:, 1]
+        return stacking_predict_proba_data
 
     @property
     def meta_train(self):
