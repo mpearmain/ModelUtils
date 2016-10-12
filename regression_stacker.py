@@ -1,12 +1,10 @@
-import pandas as pd
-import numpy as np
 
 class StackingRegressor():
     """
     To facilitate stacking of regression models
     It only provides fit and predict functions, and works with a continuous target .
     :param base_regressors: A list of regression models with a fit and predict method similar to that of sklearn
-    :param xfolds: A Kfold or KfoldStratified object to split the data for stacking.
+    :param xfolds: A Kfold object to split the data for stacking.
     :param evaluation: optional evaluation metric (y_true, y_score) to check metric at each fold.
                     expected use case might be evaluation=from sklearn.metrics.mean_squared_error
     """
@@ -30,13 +28,16 @@ class StackingRegressor():
         self.stacking_train = pd.DataFrame(np.nan, index=X.index, columns=self.colnames)
         for model_no in range(len(self.base_regressors)):
             print "Running Model ", model_no + 1, "of", len(self.base_regressors)
-            for traincv, testcv in self.xfolds:
+            print self.xfolds
+            for traincv, testcv in self.xfolds.split(X):
                 # Loop over the different folds.
                 self.base_regressors[model_no].fit(X.ix[traincv], y.ix[traincv], **kwargs)
                 predicted_y = self.base_regressors[model_no].predict(X.ix[testcv])
+
                 if self.evaluation is not None:
                     print "Current Score = ", self.evaluation(y.ix[testcv], predicted_y)
                 self.stacking_train.ix[testcv, model_no] = predicted_y
+
             # Finally fit against all the data
             self.base_regressors[model_no].fit(X, y, **kwargs)
 
