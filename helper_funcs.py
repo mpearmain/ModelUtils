@@ -1,3 +1,24 @@
+import numpy as np
+import pandas as pd
+
+
+"""
+A simple set of helper functions to make life a little easier :)
+
+"""
+
+def is_numpy(x):
+    """
+    As it states is the object x a numpy array
+    """
+    return isinstance(x, np.ndarray)
+
+
+def is_pandas(x):
+    """
+        As it states is the object x a pandas array
+    """
+    return isinstance(x, pd.DataFrame)
 
 
 def export_fold(train, folds, filename='./input/xfolds.csv'):

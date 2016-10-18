@@ -1,62 +1,113 @@
+from itertools import combinations
+
 import numpy as np
 import pandas as pd
 
 
-class StackingRegressor():
+class StackingBayesEncoder:
     """
-    To facilitate stacking of regression models
-    It only provides fit and predict functions, and works with a continuous target .
-    :param base_regressors: A list of regression models with a fit and predict method similar to that of sklearn
-    :param xfolds: A Kfold or KfoldStratified object to split the data for stacking.
-    :param evaluation: optional evaluation metric (y_true, y_score) to check metric at each fold.
-                    expected use case might be evaluation=from sklearn.metrics.mean_squared_error
+    To facilitate bayesian encoding across stacks
+    It only provides fit_transform function.
     """
 
-    def __init__(self, base_regressors, xfolds, evaluation=None):
-        self.base_regressors = base_regressors
+    def __init__(self, xfolds):
+        """
+        :param xfolds: A folds generator object from sklearn.model_selection. (sklearn v0.18)
+        """
         self.xfolds = xfolds
-        self.evaluation = evaluation
 
-        # Build an empty pandas dataframe to store the meta results to.
-        # As many rows as the folds data, as many cols as base regressors
-        self.colnames = ["v" + str(n) for n in range(len(self.base_regressors))]
-        self.stacking_train = None
+    def fit_transform(self, X, y, encode_list, target_col, levels=1):
+        """
+        A generic fit method for meta stacking for bayesian encoding.
 
-    def fit(self, X, y, **kwargs):
-        """ A generic fit method for meta stacking.
-        :param X: Train dataset
-        :param y: Train target
-        :param kwargs: Any optional params to give the fit method, i.e in xgboost we may use eval_metirc='rmse'
-        """
-        self.stacking_train = pd.DataFrame(np.nan, index=X.index, columns=self.colnames)
-        for model_no in range(len(self.base_regressors)):
-            print "Running Model ", model_no + 1, "of", len(self.base_regressors)
-            for traincv, testcv in self.xfolds:
-                # Loop over the different folds.
-                self.base_regressors[model_no].fit(X.ix[traincv], y.ix[traincv], **kwargs)
-                predicted_y = self.base_regressors[model_no].predict(X.ix[testcv])
-                if self.evaluation is not None:
-                    print "Current Score = ", self.evaluation(y.ix[testcv], predicted_y)
-                self.stacking_train.ix[testcv, model_no] = predicted_y
-            # Finally fit against all the data
-            self.base_regressors[model_no].fit(X, y, **kwargs)
+        :param X: A pandas dataset (train).
+        :param y: A pandas dataset (test).
+        :param encode_list: The list of single cols in the train and test sets to encode.
+        :param target_col: The numeric col to encode against, float.
+        :param levels: The number of levels to encode to, all single (1), pairwise (2), triplets (3)
 
-    def predict(self, X):
         """
-        :param X: The data to apply the fitted model from fit
-        :return: The predicted value of the regression model
-        """
-        stacking_predict_data = pd.DataFrame(np.nan, index=X.index, columns=self.colnames)
+        # We first need calculate the number of encodings we are going to make based on the combination levels.
+        encode_combinations = list(combinations(encode_list, levels))
+        encode_train = pd.DataFrame(data=None, index=X.index)
+        encode_test = pd.DataFrame(data=None, index=y.index)
+        y_idx = y.index
+        # For each fold in the data set
+        for traincv, testcv in self.xfolds.split(X):
+            # First create the different datasets to encode.
+            encode_X = X.ix[traincv]
+            encode_y = X.ix[testcv]
 
-        for model_no in range(len(self.base_regressors)):
-            stacking_predict_data.ix[:, model_no] = self.base_regressors[model_no].predict(X)
-        return stacking_predict_data
+            # iterate through the combinations, first extract the cols from the tuple.
+            for encode_row in encode_combinations:
+                encode_cols = []
+                [encode_cols.append(j) for j in encode_row]
 
-    @property
-    def meta_train(self):
-        """
-        A return method for the underlying meta data prediction from the training data set as a pandas dataframe
-        Use the predict method to score new data for each classifier.
-        :return: A pandas dataframe object of stacked predictions of predict
-        """
-        return self.stacking_train.copy()
+                aggr_funcs = ["mean", "median"]
+
+                meanDF = pd.DataFrame(encode_X.groupby(encode_cols)[target_col].aggregate(aggr_funcs))
+                meanDF = meanDF.reset_index()
+
+                global_mean = encode_X.groupby(encode_cols)[target_col].mean().mean()
+                global_median = encode_X.groupby(encode_cols)[target_col].median().median()
+
+                label = ""
+                for i in encode_cols:
+                    label = label + i
+                print "Getting", label, "wise demand.."
+
+                dfcols = [[col for col in encode_cols], [i + label for i in aggr_funcs]]
+                meanDF.columns = [item for sublist in dfcols for item in sublist]
+
+                # We only care about the values in this stack.
+                encode_y = pd.merge(encode_y, meanDF, on=encode_cols, how="left")
+                # fill any missing values (in y not in X)
+                encode_y['mean' + label].fillna(global_mean, inplace=True)
+                encode_y['median' + label].fillna(global_median, inplace=True)
+
+                encode_y.index = testcv
+
+                #  Create col if not present and add y
+                for col in dfcols[1]:
+                    if col not in encode_train:
+                        encode_train[col] = np.nan
+                    encode_train.ix[encode_y.index, col] = encode_y[col]
+
+
+        # Repeat for all the data and create the test set values
+        # iterate through the combinations, first extract the cols from the tuple.
+        for encode_row in encode_combinations:
+            encode_cols = []
+            [encode_cols.append(j) for j in encode_row]
+
+            aggr_funcs = ["mean", "median"]
+
+            meanDF = pd.DataFrame(X.groupby(encode_cols)[target_col].aggregate(aggr_funcs))
+            meanDF = meanDF.reset_index()
+
+            global_mean = X.groupby(encode_cols)[target_col].mean().mean()
+            global_median = X.groupby(encode_cols)[target_col].median().median()
+
+            label = ""
+            for i in encode_cols:
+                label = label + i
+            print "Getting", label, "wise demand.."
+
+            dfcols = [[col for col in encode_cols], [i + label for i in aggr_funcs]]
+            meanDF.columns = [item for sublist in dfcols for item in sublist]
+
+            # We only care about the values in this stack.
+            y = pd.merge(y, meanDF, on=encode_cols, how="left")
+            # fill any missing values (in y not in X)
+            y['mean' + label].fillna(global_mean, inplace=True)
+            y['median' + label].fillna(global_median, inplace=True)
+
+            y.index = y_idx
+
+            #  Create col if not present and add y
+            for col in dfcols[1]:
+                if col not in encode_test:
+                    encode_test[col] = np.nan
+                encode_test.ix[encode_test.index, col] = y[col]
+
+        return encode_train, encode_test
