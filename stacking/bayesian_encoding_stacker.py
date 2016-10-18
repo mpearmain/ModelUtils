@@ -51,7 +51,7 @@ class StackingBayesEncoder:
                 global_mean = encode_X.groupby(encode_cols)[target_col].mean().mean()
                 global_median = encode_X.groupby(encode_cols)[target_col].median().median()
 
-                label = ""
+                label = target_col
                 for i in encode_cols:
                     label = label + i
                 print "Getting", label, "wise demand.."
@@ -88,7 +88,7 @@ class StackingBayesEncoder:
             global_mean = X.groupby(encode_cols)[target_col].mean().mean()
             global_median = X.groupby(encode_cols)[target_col].median().median()
 
-            label = ""
+            label = target_col
             for i in encode_cols:
                 label = label + i
             print "Getting", label, "wise demand.."
